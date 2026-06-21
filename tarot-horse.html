@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>塔羅牌占卜馬匹系統</title>
+<style>
+  :root{
+    --bg:#1a1530; --panel:#241d42; --panel2:#2e2552; --line:#3d3268;
+    --gold:#d4af67; --gold2:#f0d28a; --txt:#ece8ff; --muted:#a79fce;
+    --good:#5ad6a0; --bad:#e9728a; --rev:#c98be0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+    background:linear-gradient(160deg,#160f2b,#241640);color:var(--txt);min-height:100vh}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  h1{margin:0;font-size:21px;letter-spacing:1px;color:var(--gold2)}
+  h1 .moon{color:var(--gold)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .tab{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+    padding:8px 15px;border-radius:20px;cursor:pointer;font-size:14px}
+  .tab.active{background:var(--gold);color:#221a10;border-color:var(--gold);font-weight:600}
+  main{padding:18px 22px;max-width:1100px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px;margin-bottom:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  label{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
+  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    padding:9px 11px;border-radius:9px;font-size:14px;outline:none}
+  input:focus,select:focus{border-color:var(--gold)}
+  button{cursor:pointer;border:none;border-radius:9px;font-size:14px;padding:9px 16px}
+  .btn-gold{background:var(--gold);color:#221a10;font-weight:600}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .btn-sm{padding:5px 10px;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:12px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:12px;font-size:12px}
+  .up{background:rgba(90,214,160,.15);color:var(--good)}
+  .rev{background:rgba(201,139,224,.15);color:var(--rev)}
+  .top3{background:rgba(212,175,103,.2);color:var(--gold2);font-weight:600}
+  .muted{color:var(--muted);font-size:13px}
+  .bar{height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;min-width:80px}
+  .bar>div{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2))}
+  .empty{text-align:center;color:var(--muted);padding:30px}
+  .horse-row{display:grid;grid-template-columns:1.2fr 2fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end}
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{background:var(--panel2);color:var(--muted);border-radius:0;padding:8px 12px}
+  .seg button.on{background:var(--gold);color:#221a10;font-weight:600}
+  .hide{display:none}
+  #cloudDot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#777;margin-right:6px;vertical-align:middle}
+  #cloudDot.ok{background:var(--good)} #cloudDot.err{background:var(--bad)} #cloudDot.off{background:#777}
+  .statusbar{font-size:12px;color:var(--muted)}
+  @media(max-width:640px){.horse-row{grid-template-columns:1fr 1fr}}
+</style>
+
+<!-- ====== Firebase SDK（雲端同步用，未設定也不影響單機使用） ====== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<header>
+  <h1><span class="moon">☾</span> 塔羅牌占卜馬匹系統</h1>
+  <div class="tabs">
+    <div class="tab active" data-tab="races">賽事記錄</div>
+    <div class="tab" data-tab="stats">命中率統計</div>
+    <div class="tab" data-tab="data">雲端 / 備份</div>
+  </div>
+</header>
+<main>
+<div class="statusbar" style="margin-bottom:12px"><span id="cloudDot" class="off"></span><span id="cloudStatus">單機模式（資料只存在本機瀏覽器）</span></div>
+
+<!-- ===== RACES TAB ===== -->
+<section id="tab-races">
+  <div class="card">
+    <label>新增賽事</label>
+    <div class="row">
+      <input id="raceDate" type="date">
+      <input id="raceName" placeholder="賽事名稱（例：沙田第6場）" style="min-width:220px">
+      <button class="btn-gold" onclick="addRace()">＋ 建立賽事</button>
+    </div>
+  </div>
+  <div id="raceList"></div>
+</section>
+
+<!-- ===== STATS TAB ===== -->
+<section id="tab-stats" class="hide">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <label>檢視方式</label>
+        <div class="seg" id="statMode">
+          <button class="on" data-m="split">順位/反位分開</button>
+          <button data-m="merge">合併計算</button>
+        </div>
+      </div>
+      <div>
+        <label>最少出現次數</label>
+        <input id="minN" type="number" value="1" min="1" style="width:80px" oninput="renderStats()">
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="muted" id="statSummary" style="margin-bottom:10px"></div>
+    <table>
+      <thead><tr><th>塔羅牌</th><th>方向</th><th>入三甲</th><th>出現次數</th><th style="width:200px">命中率</th></tr></thead>
+      <tbody id="statBody"></tbody>
+    </table>
+    <div id="statEmpty" class="empty hide">尚無已完成並標記結果的賽事資料。</div>
+  </div>
+</section>
+
+<!-- ===== DATA / CLOUD TAB ===== -->
+<section id="tab-data" class="hide">
+  <div class="card">
+    <label>☁ 雲端同步（Firebase）</label>
+    <p class="muted" id="cloudHint">尚未填入 Firebase 設定。請依照「設定指南」把設定貼進這個 html 檔的 firebaseConfig，雲端同步才會啟用。</p>
+    <div class="row">
+      <div>
+        <label>同步碼（兩台裝置填同一組就會看到同一份資料）</label>
+        <input id="syncCode" placeholder="例：steve-horse-8821" style="min-width:240px">
+      </div>
+      <button class="btn-gold" id="connectBtn" onclick="connectCloud()" style="align-self:end">連線雲端</button>
+    </div>
+    <p class="muted" id="cloudState" style="margin-top:10px"></p>
+  </div>
+  <div class="card">
+    <label>本機備份（隨時可用）</label>
+    <p class="muted">就算用雲端，也建議偶爾匯出一份 JSON 留底。</p>
+    <div class="row">
+      <button class="btn-gold" onclick="exportData()">⬇ 匯出 JSON</button>
+      <button class="btn-ghost" onclick="document.getElementById('importFile').click()">⬆ 匯入 JSON</button>
+      <input id="importFile" type="file" accept=".json" class="hide" onchange="importData(this)">
+      <button class="btn-ghost" onclick="clearAll()" style="margin-left:auto;color:var(--bad)">清除本機資料</button>
+    </div>
+  </div>
+  <div class="card">
+    <label>統計概覽</label>
+    <div class="muted" id="dataStats"></div>
+  </div>
+</section>
+</main>
+
+<script>
+// ====================================================================
+//  ① 在這裡貼上你的 Firebase 設定（看「設定指南」第 4 步）
+//     沒填的話 app 仍可單機使用，只是沒有雲端同步。
+// ====================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCIZqFLdRaaard8GgDX8aNBSfDmAmJ7twA",
+  authDomain: "tarot-horse.firebaseapp.com",
+  databaseURL: "https://tarot-horse-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tarot-horse",
+  storageBucket: "tarot-horse.firebasestorage.app",
+  messagingSenderId: "743689129430",
+  appId: "1:743689129430:web:d36729386d33bd1ce1e877"
+};
+// ====================================================================
+
+// ---------- 塔羅牌 78 張 ----------
+const MAJOR = ["愚者","魔術師","女祭司","皇后","皇帝","教皇","戀人","戰車","力量","隱者",
+  "命運之輪","正義","倒吊人","死神","節制","惡魔","高塔","星星","月亮","太陽","審判","世界"];
+const SUITS = ["權杖","聖杯","寶劍","錢幣"];
+const RANKS = ["Ace","2","3","4","5","6","7","8","9","10","侍從","騎士","皇后","國王"];
+const DECK = [...MAJOR];
+SUITS.forEach(s => RANKS.forEach(r => DECK.push(s + r)));
+
+// ---------- 本機資料 ----------
+const KEY = "tarotHorseData_v1";
+let DB = load();
+function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || {races:[]}; }catch(e){ return {races:[]}; } }
+function saveLocal(){ localStorage.setItem(KEY, JSON.stringify(DB)); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function save(){ saveLocal(); cloudPush(); renderDataStats(); }
+
+// ---------- 雲端 ----------
+let db=null, docRef=null, cloudReady=false, pushTimer=null, pendingRemote=null;
+function configFilled(){ return firebaseConfig.apiKey && firebaseConfig.projectId; }
+function setStatus(text, cls){
+  document.getElementById("cloudStatus").textContent = text;
+  document.getElementById("cloudDot").className = cls;
+}
+function connectCloud(){
+  const code = document.getElementById("syncCode").value.trim();
+  if(!configFilled()){ alert("尚未填入 Firebase 設定，請先依設定指南完成。"); return; }
+  if(!code){ alert("請輸入同步碼"); return; }
+  localStorage.setItem("syncCode", code);
+  initCloud(code);
+}
+function initCloud(code){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    docRef = db.collection("tarotHorse").doc(code);
+    document.getElementById("cloudState").textContent = "連線中…";
+    docRef.get().then(snap => {
+      if(snap.exists && snap.data().data){
+        const incoming = snap.data().data;
+        if(DB.races.length === 0){
+          DB = JSON.parse(incoming); saveLocal();
+        } else if(incoming !== JSON.stringify(DB)){
+          if(confirm("雲端已有一份資料，且和本機不同。\n\n按【確定】＝用雲端資料覆蓋本機\n按【取消】＝用本機資料覆蓋雲端")){
+            DB = JSON.parse(incoming); saveLocal();
+          } else {
+            docRef.set({data: JSON.stringify(DB), updated: Date.now()});
+          }
+        }
+      } else {
+        docRef.set({data: JSON.stringify(DB), updated: Date.now()});
+      }
+      cloudReady = true;
+      setStatus("已連線雲端（同步碼：" + code + "）", "ok");
+      document.getElementById("cloudState").textContent = "✓ 已連線。資料會在所有填同一組同步碼的裝置間自動同步。";
+      subscribe();
+      renderRaces(); renderDataStats();
+    }).catch(err => {
+      cloudReady = false;
+      setStatus("雲端連線失敗（仍可單機使用）", "err");
+      document.getElementById("cloudState").textContent = "✗ 連線失敗：" + err.message;
+    });
+  }catch(err){
+    setStatus("雲端初始化失敗", "err");
+    document.getElementById("cloudState").textContent = "✗ " + err.message;
+  }
+}
+function subscribe(){
+  docRef.onSnapshot(snap => {
+    if(snap.metadata.hasPendingWrites) return;        // 自己剛寫入的，略過
+    if(!snap.exists || !snap.data().data) return;
+    const incoming = snap.data().data;
+    if(incoming === JSON.stringify(DB)) return;        // 沒變化
+    const tag = document.activeElement && ["INPUT","SELECT"].includes(document.activeElement.tagName);
+    if(tag){ pendingRemote = incoming; return; }       // 正在打字，先暫存
+    applyRemote(incoming);
+  });
+}
+function applyRemote(incoming){
+  DB = JSON.parse(incoming); saveLocal();
+  renderRaces(); if(!document.getElementById("tab-stats").classList.contains("hide")) renderStats();
+  renderDataStats();
+}
+document.addEventListener("focusout", () => {
+  if(pendingRemote){ const d = pendingRemote; pendingRemote = null; setTimeout(()=>applyRemote(d), 150); }
+});
+function cloudPush(){
+  if(!cloudReady || !docRef) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    docRef.set({data: JSON.stringify(DB), updated: Date.now()})
+      .catch(err => document.getElementById("cloudState").textContent = "⚠ 上傳失敗：" + err.message);
+  }, 700);
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  ["races","stats","data"].forEach(id =>
+    document.getElementById("tab-"+id).classList.toggle("hide", id !== t.dataset.tab));
+  if(t.dataset.tab==="stats") renderStats();
+  if(t.dataset.tab==="data") renderDataStats();
+});
+
+// ---------- 賽事 ----------
+function addRace(){
+  const name = document.getElementById("raceName").value.trim();
+  const date = document.getElementById("raceDate").value;
+  if(!name){ alert("請輸入賽事名稱"); return; }
+  DB.races.unshift({ id:uid(), name, date, horses:[], done:false });
+  save(); document.getElementById("raceName").value = ""; renderRaces();
+}
+function delRace(id){ if(!confirm("確定刪除此賽事？")) return; DB.races = DB.races.filter(r => r.id !== id); save(); renderRaces(); }
+function addHorse(rid){
+  const r = DB.races.find(x => x.id === rid);
+  if(r.horses.length >= 14){ alert("每場最多 14 隻馬"); return; }
+  r.horses.push({ id:uid(), name:"", card:DECK[0], rev:false, top3:false }); save(); renderRaces();
+}
+function delHorse(rid, hid){ const r = DB.races.find(x => x.id === rid); r.horses = r.horses.filter(h => h.id !== hid); save(); renderRaces(); }
+function setHorse(rid, hid, field, val){
+  const h = DB.races.find(x=>x.id===rid).horses.find(x=>x.id===hid);
+  h[field] = val; save(); if(field==="rev"||field==="top3") renderRaces();
+}
+function toggleDone(rid){ const r = DB.races.find(x => x.id === rid); r.done = !r.done; save(); renderRaces(); }
+function cardOptions(sel){ return DECK.map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join(""); }
+
+function renderRaces(){
+  const wrap = document.getElementById("raceList");
+  if(!DB.races.length){ wrap.innerHTML = `<div class="card empty">尚未建立任何賽事。先在上方新增一場。</div>`; return; }
+  wrap.innerHTML = DB.races.map(r => {
+    const horses = r.horses.map(h => `
+      <div class="horse-row">
+        <div><input value="${esc(h.name)}" placeholder="馬名/號碼" oninput="setHorse('${r.id}','${h.id}','name',this.value)"></div>
+        <div><select onchange="setHorse('${r.id}','${h.id}','card',this.value)">${cardOptions(h.card)}</select></div>
+        <div><div class="seg">
+            <button class="${!h.rev?'on':''}" onclick="setHorse('${r.id}','${h.id}','rev',false)">順位</button>
+            <button class="${h.rev?'on':''}" onclick="setHorse('${r.id}','${h.id}','rev',true)">反位</button>
+        </div></div>
+        <div class="row" style="gap:6px">
+          <button class="btn-sm ${h.top3?'btn-gold':'btn-ghost'}" onclick="setHorse('${r.id}','${h.id}','top3',${!h.top3})">${h.top3?'★ 三甲':'入三甲？'}</button>
+          <button class="btn-sm btn-ghost" onclick="delHorse('${r.id}','${h.id}')">✕</button>
+        </div>
+      </div>`).join("");
+    return `<div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <div><strong style="font-size:16px">${esc(r.name)}</strong>
+          <span class="muted"> ${r.date||""}</span>
+          ${r.done?'<span class="pill top3" style="margin-left:8px">已完成</span>':''}</div>
+        <div class="row" style="gap:6px">
+          <button class="btn-sm ${r.done?'btn-ghost':'btn-gold'}" onclick="toggleDone('${r.id}')">${r.done?'標記為未完成':'✓ 標記賽事完成'}</button>
+          <button class="btn-sm btn-ghost" onclick="delRace('${r.id}')" style="color:var(--bad)">刪除</button>
+        </div>
+      </div>
+      ${horses || '<div class="muted" style="margin-bottom:10px">尚未加入馬匹</div>'}
+      <button class="btn-ghost btn-sm" onclick="addHorse('${r.id}')">＋ 加入馬匹</button>
+    </div>`;
+  }).join("");
+}
+
+// ---------- 統計 ----------
+let statMode = "split";
+document.querySelectorAll("#statMode button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#statMode button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); statMode = b.dataset.m; renderStats();
+});
+function renderStats(){
+  const minN = Math.max(1, parseInt(document.getElementById("minN").value)||1);
+  const map = {}; let totalHorses = 0, doneRaces = 0;
+  DB.races.filter(r => r.done).forEach(r => {
+    doneRaces++;
+    r.horses.forEach(h => {
+      if(!h.name && h.card===DECK[0] && !h.rev && !h.top3) return;
+      totalHorses++;
+      const key = statMode==="split" ? h.card+"|"+(h.rev?"R":"U") : h.card;
+      if(!map[key]) map[key] = {n:0, hit:0, card:h.card, rev:h.rev};
+      map[key].n++; if(h.top3) map[key].hit++;
+    });
+  });
+  let rows = Object.values(map).filter(x => x.n >= minN).sort((a,b) => (b.hit/b.n)-(a.hit/a.n) || b.n-a.n);
+  const body = document.getElementById("statBody"), empty = document.getElementById("statEmpty");
+  document.getElementById("statSummary").textContent =
+    `已完成賽事 ${doneRaces} 場 · 統計馬匹 ${totalHorses} 隻 · 符合條件的牌組 ${rows.length} 個`;
+  if(!rows.length){ body.innerHTML=""; empty.classList.remove("hide"); return; }
+  empty.classList.add("hide");
+  body.innerHTML = rows.map(x => {
+    const rate = x.hit/x.n;
+    const dir = statMode==="merge" ? '<span class="muted">—</span>' : (x.rev ? '<span class="pill rev">反位</span>' : '<span class="pill up">順位</span>');
+    return `<tr><td>${x.card}</td><td>${dir}</td><td>${x.hit}</td><td>${x.n}</td>
+      <td><div class="row"><div class="bar" style="flex:1"><div style="width:${(rate*100).toFixed(0)}%"></div></div>
+      <strong style="color:var(--gold2);width:46px;text-align:right">${(rate*100).toFixed(0)}%</strong></div></td></tr>`;
+  }).join("");
+}
+
+// ---------- 備份 ----------
+function exportData(){
+  const blob = new Blob([JSON.stringify(DB,null,2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tarot-horse-" + new Date().toISOString().slice(0,10) + ".json"; a.click();
+}
+function importData(input){
+  const f = input.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{ const d = JSON.parse(e.target.result); if(!d.races) throw 0;
+      if(confirm("匯入將覆蓋目前資料，確定？")){ DB = d; save(); renderRaces(); renderDataStats(); alert("匯入成功"); }
+    }catch(err){ alert("檔案格式錯誤"); } input.value = "";
+  };
+  reader.readAsText(f);
+}
+function clearAll(){ if(confirm("確定清除本機全部資料？")){ DB = {races:[]}; save(); renderRaces(); renderDataStats(); } }
+function renderDataStats(){
+  const done = DB.races.filter(r=>r.done).length;
+  const horses = DB.races.reduce((s,r)=>s+r.horses.length,0);
+  const hits = DB.races.reduce((s,r)=>s+r.horses.filter(h=>h.top3).length,0);
+  document.getElementById("dataStats").innerHTML =
+    `賽事總數：${DB.races.length} 場（已完成 ${done}）<br>馬匹記錄：${horses} 筆<br>標記入三甲：${hits} 筆`;
+}
+function esc(s){ return (s||"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ---------- init ----------
+document.getElementById("raceDate").valueAsDate = new Date();
+renderRaces(); renderDataStats();
+(function bootCloud(){
+  const savedCode = localStorage.getItem("syncCode") || "";
+  document.getElementById("syncCode").value = savedCode;
+  if(configFilled()){
+    document.getElementById("cloudHint").textContent = "已偵測到 Firebase 設定。輸入同步碼並按「連線雲端」即可開始同步。";
+    if(savedCode) initCloud(savedCode);
+  }
+})();
+</script>
+</body>
+</html>
